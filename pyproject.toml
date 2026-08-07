@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "utils_tx"
+version = "0.1.0"
+description = "Utility toolkit for trading systems: TCP logging server/client, job schedulers, and inter-process communication (IPC) list manager"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["logging", "scheduler", "ipc", "trading", "utilities"]
+
+authors = [
+    { name = "ASH-SuperUser", email = "ash@example.com" },
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Logging",
+    "Topic :: System :: Monitoring",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "colorama>=0.4.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/ASH-SuperUser/utils_tx"
+Repository = "https://github.com/ASH-SuperUser/utils_tx"
+BugTracker = "https://github.com/ASH-SuperUser/utils_tx/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["utils_tx*"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
