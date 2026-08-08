@@ -1080,10 +1080,9 @@ class Scheduler:
             self._start_wall = datetime.now()
             self._scheduler_thread = threading.Thread(target=self._scheduler_loop, daemon=True)
             self._scheduler_thread.start()
-            startup_units = [unit for unit in self._units.values() if unit.startup]
-
-        for unit in startup_units:
-            self._dispatch_unit(unit)
+            for unit in self._units.values():
+                if unit.startup:
+                    self._dispatch_unit(unit)
 
     def stop_scheduler(self) -> None:
         """Gracefully stop the scheduler background loop.
@@ -1419,7 +1418,10 @@ class Scheduler:
         if not unit.enabled:
             return
 
-        for index, job in enumerate(unit.jobs):
+        with self._lock:
+            jobs = list(unit.jobs)
+
+        for index, job in enumerate(jobs):
             jid = id(job)
             cap = self.max_concurrent
             if cap is None and not self.allow_overlap:
@@ -1448,27 +1450,35 @@ class Scheduler:
             )
             runner.start()
 
+    def _resolved_job_index(self, unit: _CronUnit, job: Job) -> int:
+        """Return the job's current index within the unit, or -1 if removed."""
+        try:
+            return unit.jobs.index(job)
+        except ValueError:
+            return -1
+
     def _job_runner(self, unit: _CronUnit, job: Job, index: int, token: int) -> None:
         """Execute a single job with retry handling, timing and stats recording."""
         jid = id(job)
         start = time.monotonic()
         result: Optional[JResponse] = None
         attempts = 0
+        local_runs = 0
+        local_retries = 0
 
         try:
             while True:
                 attempts += 1
+                local_runs += 1
                 with self._lock:
                     self._stats["runs"] += 1
-                    job_stats = self._job_stats.setdefault((unit.cron_str, index), self._new_job_stats())
-                    job_stats["runs"] += 1
 
                 result = job.execute()
 
                 if result.is_error and self.retry_on_failure and attempts <= self.max_retries:
                     with self._lock:
                         self._stats["retries"] += 1
-                        self._job_stats.setdefault((unit.cron_str, index), self._new_job_stats())["retries"] += 1
+                        local_retries += 1
                     self._log(
                         f"[Scheduler Retry] '{unit.cron_str}' (job #{index}) attempt "
                         f"{attempts}/{self.max_retries} failed: {result.error}",
@@ -1482,7 +1492,10 @@ class Scheduler:
         finally:
             duration = time.monotonic() - start
             with self._lock:
-                job_stats = self._job_stats.setdefault((unit.cron_str, index), self._new_job_stats())
+                stats_index = self._resolved_job_index(unit, job)
+                job_stats = self._job_stats.setdefault((unit.cron_str, stats_index), self._new_job_stats())
+                job_stats["runs"] += local_runs
+                job_stats["retries"] += local_retries
                 job_stats["last_duration"] = duration
                 job_stats["total_duration"] += duration
                 job_stats["last_run"] = time.monotonic()
@@ -1494,7 +1507,7 @@ class Scheduler:
                     job_stats["last_result"] = False
                     job_stats["last_error"] = repr(result.error)
                     self._log(
-                        f"[Scheduler Job Error] '{unit.cron_str}' (job #{index}) failed: {result.error}",
+                        f"[Scheduler Job Error] '{unit.cron_str}' (job #{stats_index}) failed: {result.error}",
                         is_error=True,
                     )
                 else:
@@ -1504,18 +1517,26 @@ class Scheduler:
                     job_stats["last_result"] = True
                     job_stats["last_error"] = None
 
-                unit.running_count[jid] = max(unit.running_count.get(jid, 0) - 1, 0)
-                for (jid_key, idx_key), starts in list(unit.running_started.items()):
-                    if jid_key == jid and token in starts:
-                        starts.pop(token, None)
-                        if not starts:
-                            unit.running_started.pop((jid_key, idx_key), None)
-                        break
+                if jid in unit.running_count:
+                    unit.running_count[jid] = max(unit.running_count[jid] - 1, 0)
+
+                starts = unit.running_started.get((jid, stats_index)) if stats_index >= 0 else None
+                if starts is not None and token in starts:
+                    starts.pop(token, None)
+                    if not starts:
+                        unit.running_started.pop((jid, stats_index), None)
+                else:
+                    for (jid_key, idx_key), starts_map in list(unit.running_started.items()):
+                        if jid_key == jid and token in starts_map:
+                            starts_map.pop(token, None)
+                            if not starts_map:
+                                unit.running_started.pop((jid_key, idx_key), None)
+                            break
 
                 if self.history_max:
                     self._history.append({
                         "cron": unit.cron_str,
-                        "index": index,
+                        "index": stats_index,
                         "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "duration": round(duration, 4),
                         "is_error": bool(result is not None and result.is_error),
@@ -1553,31 +1574,30 @@ class Scheduler:
             return
         with self._lock:
             last_str = unit.last_fired
-        if last_str is None:
-            return
+            if last_str is None:
+                return
 
-        fmt = "%Y-%m-%d %H:%M:%S" if unit.cron.has_seconds else "%Y-%m-%d %H:%M"
-        try:
-            last = datetime.strptime(last_str, fmt)
-        except ValueError:
-            return
+            fmt = "%Y-%m-%d %H:%M:%S" if unit.cron.has_seconds else "%Y-%m-%d %H:%M"
+            try:
+                last = datetime.strptime(last_str, fmt)
+            except ValueError:
+                return
 
-        step = timedelta(seconds=1) if unit.cron.has_seconds else timedelta(minutes=1)
-        bound = now - timedelta(seconds=self.catch_up_window)
-        cursor = last + step
-        while cursor < now:
-            if cursor >= bound and unit.cron.matches(cursor):
-                matched = cursor.strftime(fmt)
-                with self._lock:
+            step = timedelta(seconds=1) if unit.cron.has_seconds else timedelta(minutes=1)
+            bound = now - timedelta(seconds=self.catch_up_window)
+            cursor = last + step
+            while cursor < now:
+                if cursor >= bound and unit.cron.matches(cursor):
+                    matched = cursor.strftime(fmt)
                     unit.last_fired = matched
                     self._stats["catch_up_fired"] += 1
-                self._log(
-                    f"[Scheduler Catch-Up] Running missed '{unit.cron_str}' for {matched}",
-                    level="warning",
-                )
-                self._dispatch_unit(unit)
-                return
-            cursor += step
+                    self._log(
+                        f"[Scheduler Catch-Up] Running missed '{unit.cron_str}' for {matched}",
+                        level="warning",
+                    )
+                    self._dispatch_unit(unit)
+                    return
+                cursor += step
 
     # ── main loop ────────────────────────────────────────────────────
 

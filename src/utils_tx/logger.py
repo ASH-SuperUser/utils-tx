@@ -366,6 +366,9 @@ class LoggerServer:
             log_type = payload.get("type")
             log_message = payload.get("message")
 
+            if isinstance(log_type, str):
+                log_type = STR_TO_LOG_TYPE.get(log_type.lower())
+
             if log_type in self.configs:
                 config = self.configs[log_type]
 

@@ -191,11 +191,11 @@ class qipc_server:
                 item = req.get("item")
                 with self._lock:
                     dq = self.lists.get(list_name)
-                if dq is None:
-                    return {"status": "error", "error": f"List '{list_name}' not found"}
-                lock = self._get_list_lock(list_name)
-                with lock:
-                    dq.append(item)
+                    if dq is None:
+                        return {"status": "error", "error": f"List '{list_name}' not found"}
+                    lock = self._get_list_lock(list_name)
+                    with lock:
+                        dq.append(item)
                 return {"status": "ok"}
 
             elif action == "get_last":

@@ -229,7 +229,7 @@ class TestLoggerServerHandleClient:
             s2.connect((host, port))
             client_sock, _ = s1.accept()
 
-            self._send_payload(client_sock, LOG_INFO, "test message")
+            self._send_payload(s2, LOG_INFO, "test message")
 
             server._handle_client(client_sock)
 
@@ -354,6 +354,37 @@ class TestLoggerServerIntegration:
 
 
 # ── Regression tests for reported bugs ───────────────────────────────
+
+class TestStringLogTypeHandling:
+
+    def _send_payload(self, sock, log_type, message):
+        payload = json.dumps({"type": log_type, "message": message}).encode("utf-8")
+        sock.sendall(struct.pack('!I', len(payload)) + payload)
+
+    def _roundtrip(self, server, log_type, message):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s1, \
+             socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s2:
+            s1.bind(('127.0.0.1', 0))
+            s1.listen(1)
+            s1.settimeout(2)
+            host, port = s1.getsockname()
+            s2.connect((host, port))
+            client_sock, _ = s1.accept()
+            self._send_payload(s2, log_type, message)
+            server._handle_client(client_sock)
+
+    def test_string_log_type_is_resolved_server_side(self):
+        server = LoggerServer(color_print=False, info_max_in_mem=10, print_info=False)
+        self._roundtrip(server, "info", "string-typed info message")
+        logs = server.get_logs(LOG_INFO)
+        assert any("string-typed info message" in log for log in logs)
+
+    def test_string_log_type_case_insensitive(self):
+        server = LoggerServer(color_print=False, error_max_in_mem=10, print_error=False)
+        self._roundtrip(server, "ERROR", "uppercase error message")
+        logs = server.get_logs(LOG_ERROR)
+        assert any("uppercase error message" in log for log in logs)
+
 
 class TestFileLockLifecycle:
 

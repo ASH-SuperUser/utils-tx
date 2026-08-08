@@ -1,4 +1,27 @@
-# utils_tx
+# utils-tx
+
+```
+                                                                          
+@@@  @@@  @@@@@@@  @@@  @@@        @@@@@@              @@@@@@@  @@@  @@@  
+@@@  @@@  @@@@@@@  @@@  @@@       @@@@@@@              @@@@@@@  @@@  @@@  
+@@!  @@@    @@!    @@!  @@!       !@@                    @@!    @@!  !@@  
+!@!  @!@    !@!    !@!  !@!       !@!                    !@!    !@!  @!!  
+@!@  !@!    @!!    !!@  @!!       !!@@!!    @!@!@!@!@    @!!     !@@!@!   
+!@!  !!!    !!!    !!!  !!!        !!@!!!   !!!@!@!!!    !!!      @!!!    
+!!:  !!!    !!:    !!:  !!:            !:!               !!:     !: :!!   
+:!:  !:!    :!:    :!:   :!:          !:!                :!:    :!:  !:!  
+::::: ::     ::     ::   :: ::::  :::: ::                 ::     ::  :::  
+ : :  :      :     :    : :: : :  :: : :                  :      :   ::   
+                                                                          
+```
+
+
+[![CI](https://github.com/ASH-SuperUser/utils-tx/actions/workflows/ci.yml/badge.svg)](https://github.com/ASH-SuperUser/utils-tx/actions/workflows/ci.yml)
+[![PyPI - Version](https://img.shields.io/pypi/v/utils-tx)](https://pypi.org/project/utils-tx/)
+[![PyPI - Python Versions](https://img.shields.io/pypi/pyversions/utils-tx)](https://pypi.org/project/utils-tx/)
+[![License - MIT](https://img.shields.io/pypi/l/utils-tx)](https://github.com/ASH-SuperUser/utils-tx/blob/main/LICENSE)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/utils-tx)](https://pypi.org/project/utils-tx/)
+[![GitHub](https://img.shields.io/badge/GitHub-ASH_SuperUser%2Futils--tx-181717?logo=github&logoColor=white)](https://github.com/ASH-SuperUser/utils-tx)
 
 A lightweight, threading-safe utility toolkit for Python trading and automation systems. Built with reliability and 24/7 operation in mind.
 
@@ -15,7 +38,7 @@ A lightweight, threading-safe utility toolkit for Python trading and automation 
 ## Installation
 
 ```bash
-pip install utils_tx           # production
+pip install utils-tx           # production
 pip install -e ".[dev]"        # editable install with dev dependencies (pytest, pytest-cov)
 ```
 
@@ -84,6 +107,13 @@ server.stop_server()
 ```
 
 #### Retrieving In-Memory Logs
+
+In-memory storage is **off by default** (`*_max_in_mem=0`). Enable it in the
+`LoggerServer` constructor to make logs retrievable:
+
+```python
+server = LoggerServer(port=5050, info_max_in_mem=100)  # keep last 100 INFO messages
+```
 
 ```python
 # All levels as 5 nested lists: [debug, info, success, warning, error]
@@ -279,7 +309,7 @@ operation_window=("22:00:00", "04:00:00")
 
 ---
 
-## 4. `Scheduler` — Cron-Driven Production Scheduler
+## 3. `Scheduler` — Cron-Driven Production Scheduler
 
 A cron-driven scheduler designed for 24x7 operation. The job dict maps **cron expressions** to `Job` instances (or lists of jobs). Built-in reliability controls:
 
@@ -308,7 +338,7 @@ scheduler = Scheduler(
     },
     check_freq=1,
     skip_days=None,                      # cron already encodes weekdays
-    operation_window=("09:30:00", "16:00:00"),  # optional market-hours gate
+    operation_window=("09:30:00", "17:00:00"),  # optional market-hours gate (must cover both jobs)
     allow_overlap=False,                 # overlap protection ON (default)
     retry_on_failure=True, max_retries=3, retry_delay=2.0,
     job_timeout=60,                      # flag jobs running > 60s
@@ -396,7 +426,7 @@ scheduler.get_runned_today()               # today's execution records
 
 ---
 
-## 3. `quick_ipc` Module — Inter-Process List Manager
+## 4. `quick_ipc` Module — Inter-Process List Manager
 
 A TCP server that maintains named lists in memory. Multiple processes can connect, append, read, and delete items from shared lists.
 
@@ -528,8 +558,8 @@ ipc_server.stop_server()
 ## Development
 
 ```bash
-git clone https://github.com/ASH-SuperUser/utils_tx.git
-cd utils_tx
+git clone https://github.com/ASH-SuperUser/utils-tx.git
+cd utils-tx
 pip install -e ".[dev]"
 pytest tests/ -v
 ```

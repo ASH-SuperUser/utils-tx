@@ -558,7 +558,7 @@ class TestSchedulerCatchUp:
         unit.last_fired = (datetime.now() - timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M")
         sched._maybe_catch_up(unit, datetime.now())
         assert sched.get_stats()["catch_up_fired"] == 1
-        assert sched.get_stats()["runs"] == 1
+        assert _wait_until(lambda: sched.get_stats()["runs"] == 1)
 
     def test_no_catch_up_when_never_fired(self):
         sched = Scheduler({}, catch_up=True)
@@ -682,3 +682,98 @@ class TestSchedulerSkipping:
         sched = Scheduler({}, operation_window=("22:00:00", "04:00:00"))
         assert sched._is_within_window(datetime(2026, 8, 3, 23, 0)) is True
         assert sched._is_within_window(datetime(2026, 8, 3, 12, 0)) is False
+
+
+class TestSchedulerConcurrencyRegressions:
+
+    def test_catch_up_dispatch_holds_lock(self, monkeypatch):
+        sched = Scheduler({}, catch_up=True, catch_up_window=300)
+        sched.add_job("* * * * *", Job(lambda: None))
+        unit = sched._units["* * * * *"]
+        unit.last_fired = (datetime.now() - timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M")
+
+        held = []
+        orig = Scheduler._dispatch_unit
+
+        def patched(self, target):
+            observed = []
+
+            def probe():
+                acquired = self._lock.acquire(blocking=False)
+                if acquired:
+                    self._lock.release()
+                observed.append(not acquired)
+
+            t = threading.Thread(target=probe)
+            t.start()
+            t.join()
+            held.append(observed[0])
+            return orig(self, target)
+
+        monkeypatch.setattr(Scheduler, "_dispatch_unit", patched)
+        sched._maybe_catch_up(unit, datetime.now())
+        assert held == [True], "catch-up must dispatch while holding the lock"
+
+    def test_startup_dispatch_atomic_with_stop(self, monkeypatch):
+        sched = Scheduler({"@startup": Job(lambda: None)}, skip_days=None, verbose=False)
+
+        entered = threading.Event()
+        release = threading.Event()
+        orig = Scheduler._dispatch_unit
+
+        def patched(self, unit):
+            entered.set()
+            release.wait(timeout=5)
+            return orig(self, unit)
+
+        monkeypatch.setattr(Scheduler, "_dispatch_unit", patched)
+
+        t_start = threading.Thread(target=sched.start_scheduler)
+        t_start.start()
+        assert entered.wait(timeout=5), "startup dispatch should have been entered"
+
+        t_stop = threading.Thread(target=sched.stop_scheduler)
+        t_stop.start()
+
+        time.sleep(0.2)
+        stop_set_while_dispatching = sched._stop_event.is_set()
+
+        release.set()
+        t_start.join(timeout=5)
+        t_stop.join(timeout=5)
+
+        assert stop_set_while_dispatching is False, \
+            "stop_scheduler must not interleave with the startup dispatch phase"
+
+    def test_runner_stats_use_current_index_after_shift(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        def a_fn():
+            started.set()
+            release.wait(timeout=5)
+
+        def b_fn():
+            started.set()
+            release.wait(timeout=5)
+
+        sched = Scheduler({}, allow_overlap=True)
+        job_a = Job(a_fn)
+        job_b = Job(b_fn)
+        sched.add_job("* * * * *", [job_a, job_b])
+        unit = sched._units["* * * * *"]
+
+        sched._dispatch_unit(unit)
+        assert started.wait(timeout=5), "both jobs should have started"
+
+        sched.remove_job_index("* * * * *", 0)
+
+        release.set()
+        assert sched.wait_for_all(timeout=5)
+
+        with sched._lock:
+            assert unit.running_started == {}, \
+                "no stale running_started entries should remain after the shift"
+            assert ("* * * * *", 1) not in sched._job_stats, \
+                "runner must not write any stats under the stale pre-removal index"
+        assert sched.get_job_stats("* * * * *")["runs"] == 2

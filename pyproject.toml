@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "utils_tx"
-version = "0.1.0"
+name = "utils-tx"
+version = "0.1.1"
 description = "Threading-safe utility toolkit for trading systems: TCP logging server/client, cron/interval/time job schedulers with overlap protection, and inter-process communication (IPC) list manager"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -79,11 +79,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ASH-SuperUser/utils_tx"
-Repository = "https://github.com/ASH-SuperUser/utils_tx"
-Documentation = "https://github.com/ASH-SuperUser/utils_tx#readme"
-Changelog = "https://github.com/ASH-SuperUser/utils_tx/blob/main/CHANGELOG.md"
-Issues = "https://github.com/ASH-SuperUser/utils_tx/issues"
+Homepage = "https://github.com/ASH-SuperUser/utils-tx"
+Repository = "https://github.com/ASH-SuperUser/utils-tx"
+Documentation = "https://github.com/ASH-SuperUser/utils-tx#readme"
+Changelog = "https://github.com/ASH-SuperUser/utils-tx/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ASH-SuperUser/utils-tx/issues"
 
 [project.optional-dependencies]
 dev = [

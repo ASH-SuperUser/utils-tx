@@ -350,6 +350,64 @@ class TestModifyListRace:
         assert "x" not in srv.lists
 
 
+class TestAddItemRace:
+    def test_delete_cannot_interleave_add_item(self):
+        srv = qipc_server()
+        srv.create_list("x")
+        srv._handle_request({"action": "add_item", "list_name": "x", "item": "seed"})
+
+        entered = threading.Event()
+        release = threading.Event()
+        original = srv._get_list_lock("x")
+
+        class Gated:
+            def acquire(self, blocking=True, timeout=-1):
+                entered.set()
+                release.wait(timeout=5)
+                return original.acquire(blocking, timeout)
+
+            def release(self):
+                return original.release()
+
+            def __enter__(self):
+                self.acquire()
+                return self
+
+            def __exit__(self, *exc):
+                self.release()
+
+        srv._list_locks["x"] = Gated()
+        result = {}
+
+        def do_add():
+            result["add"] = srv._handle_request(
+                {"action": "add_item", "list_name": "x", "item": "new"}
+            )
+
+        t = threading.Thread(target=do_add)
+        t.start()
+        assert entered.wait(timeout=5), "add_item should have started"
+
+        deleted = []
+
+        def do_delete():
+            srv.delete_list("x")
+            deleted.append(True)
+
+        d = threading.Thread(target=do_delete)
+        d.start()
+        time.sleep(0.2)
+        assert d.is_alive(), "delete_list must be blocked while add_item is in progress"
+
+        release.set()
+        t.join(timeout=5)
+        d.join(timeout=5)
+
+        assert result["add"]["status"] == "ok"
+        assert deleted, "delete_list should finish after add_item completes"
+        assert "x" not in srv.lists
+
+
 class TestServerStopDeadlock:
     def test_stop_server_from_worker_does_not_deadlock(self):
         port = _find_free_port()
